@@ -1,0 +1,10 @@
+T=(1,2,3,6);
+print(len(T));
+T+=(5,6);
+print(T);
+print(T.index(5));
+print(T.count(6));
+T1=('spam', 3.0, [11,22,33]);
+print(T1[1]);
+print(T1[2][1]);
+#T1.append(6);
