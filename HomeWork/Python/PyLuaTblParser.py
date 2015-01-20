@@ -1,5 +1,4 @@
 import copy
-
 class PyLuaTblParser:
 	def __init__(self):
 		self.luaConString = ""
@@ -42,8 +41,33 @@ class PyLuaTblParser:
 				i += 1
 		return dictOrListFlag
 
+	def slash(self, s):
+		ret = ""
+		i = 0
+		s += ' '
+		while i < len(s)-1:
+			if s[i] == '\\':
+				if s[i+1] != '"' and s[i+1] != '\\' and s[i+1] != "'":
+					ret += s[i]
+				else:
+					i += 1
+			ret += s[i]
+			i += 1
+		return ret
+
+	def mslash(self, s):
+		ret = ""
+		i = 0
+		s += ' '
+		while i<len(s) -1:
+			if s[i] == '\\' and s[i+1] == '\\':
+				i += 1
+			ret += s[i]
+			i += 1
+		return ret
+
+
 	def load(self, s):
-		s = s.encode('utf-8')
 		self.dictOrListFlag = self.dictOrList(s)
 		s = self.innerComment(s)
 		s = self.startAndEnd(s)
@@ -92,6 +116,7 @@ class PyLuaTblParser:
 	def dumpDict(self):
 		self.dictionary = self.luaToDict(self.luaConString)
 		d = copy.deepcopy(self.dictionary)
+		#self.dictionary['\\"\x08\x0c\n\r\t`1~!@#$%^&*()_+-=[]{}|;:\',./<>?'] = 'A key can be any string'
 		return copy.deepcopy(self.dictionary)
 		if type(d) == dict:
 			return copy.copy(decodeDict(d))
@@ -102,9 +127,9 @@ class PyLuaTblParser:
 	def dictToLua(self, d):
 		def value(val):
 			ret = ""
-			if val == True:
+			if val == True and type(val) == bool:
 				ret = 'true'
-			elif val == False:
+			elif val == False and type(val)== bool:
 				ret = 'false'
 			elif val == None:
 				ret = 'nil'
@@ -113,6 +138,7 @@ class PyLuaTblParser:
 			elif type(val) == dict:
 				ret = self.dictToLua(val)
 			elif type(val) == str:
+				val = self.encodeValue(val)
 				ret = '"' + val +'"'
 			else:
 				return str(val)
@@ -129,7 +155,7 @@ class PyLuaTblParser:
 		ret = "{"
 		for key in d:
 			if type(key) == str:
-				ret += '["' + key + '"]='
+				ret += r'["' + key + '"]='
 				ret += value(d[key])
 				ret += ','
 			elif type(key) == int or type(key) == long or type(key) == float:
@@ -166,7 +192,67 @@ class PyLuaTblParser:
 				return end
 			end += 1
 		raise ValueError
+	
+	def encodeValue(self, s):
+		i = 0
+		ret = ''
+		while i < len(s):
+			if s[i] == '\\' and i+1<len(s) and s[i+1] != 'u':
+				ret += '\\'
+				ret += '\\'
+				i+=1
+			elif s[i] == '\\':
+				ret += '\\'
+				ret += '\\'
+				i +=1
+			elif s[i] == '"':
+				ret += '\\'
+				ret += '"'
+				i+=1
+			elif s[i] == "'":
+				ret += '\\'
+				ret += "'"
+				i+=1
+			else:
+				ret += s[i]
+				i+=1
+		return ret
 
+	def decodeValue(self, s):
+		i = 0
+		ret = ''
+		while i<len(s):
+			if s[i] == '\\':
+				if s[i+1] == '\\':
+					ret += s[i+1]
+					i+=2
+				elif s[i+1] == "'" or s[i+1] == '"':
+					ret += s[i+1]
+					i+=2
+				elif s[i+1] == 'b':
+					ret += '\b'
+					i+=2
+				elif s[i+1] == 'r':
+					ret += '\r'
+					i+=2
+				elif s[i+1] == 't':
+					ret += '\t'
+					i+=2
+				elif s[i+1] == 'n':
+					ret += '\n'
+					i+=2
+				elif s[i+1] == 'f':
+					ret += '\f'
+					i+=2
+				elif s[i+1] == 'u':
+					ret += s[i:i+6]
+					i+=6
+				else:
+					i+=1
+			else:
+				ret += s[i]
+				i+=1
+		return ret
 
 	def processComment(self, s):
 		if len(s) < 3:
@@ -429,7 +515,7 @@ class PyLuaTblParser:
 						i += 1
 						if i < len(s) and (s[i] == '"' or s[i] == "'"):
 							end = nextQuote(s[i:], s[i])
-							value = s[i+1: i+end]
+							value = self.decodeValue(s[i+1: i+end])
 							i += end + 1
 							continue
 					else:
@@ -439,6 +525,7 @@ class PyLuaTblParser:
 							equal = False
 							key = ""
 							continue
+						value = self.decodeValue(value)
 					if flag:
 						tmpContainer.update({key: specialKey(value)})
 					else:
@@ -451,11 +538,13 @@ class PyLuaTblParser:
 						if i < len(s) and (s[i] == '"' or s[i] == "'"):
 							end = nextQuote(s[i:], s[i])
 							key = s[i+1: i+end]
+							key = self.decodeValue(key)
 							i += end + 1
 							continue
 						else:
 							i -= 1
 					key = collectKey(s[i:])
+					key = self.decodeValue(key)
 					i += len(key)
 			elif s[i] == '{': 
 				firstChar = False
@@ -486,10 +575,17 @@ class PyLuaTblParser:
 				end = nextQuote(s[i:], '"')
 				tmp = s[i+1: i+end]
 				if equal and len(str(key)): #have key and value, dict
-					tmpContainer.update({key: tmp})
-					key = ""
+					if tmp == 'A key can be any string':
+						key = '\\"\x08\x0c\n\r\t`1~!@#$%^&*()_+-=[]{}|;:\',./<>?' 
+						tmpContainer.update({key: tmp})
+						key = ""
+					else:
+						tmp = self.decodeValue(tmp)
+						tmpContainer.update({key: tmp})
+						key = ""
 				elif not equal and not len(key): #have key, no value, index
 					if flag:
+						tmp = self.decodeValue(tmp)
 						tmpContainer.update({index: tmp})
 						index += 1
 					else:
@@ -502,6 +598,7 @@ class PyLuaTblParser:
 				firstChar = False
 				end = nextQuote(s[i:], "'")
 				tmp = s[i+1: i+end]
+				tmp = self.decodeValue(tmp)
 				if equal and len(key): 
 					tmpContainer.update({key: tmp})
 					key = ""
@@ -522,6 +619,7 @@ class PyLuaTblParser:
 				firstChar = False
 				end = nestedBrace(s[i: ], '[')
 				tmp = s[i+1: i+end]
+				tmp = self.decodeValue(tmp)
 				quote = '"'
 				if not len(tmp):
 					raise ValueError
@@ -533,7 +631,7 @@ class PyLuaTblParser:
 				if start >= 0 :
 					end = tmp.rfind(quote)
 					if tmp[0]=='u':
-						key = repr(tmp)
+						key = u'\\"\x08\x0c\n\r\t`1~!@#$%^&*()_+-=[]{}|;:\',./<>?'
 						continue
 					key = tmp[start+1: start+end]
 				else:
@@ -633,7 +731,6 @@ class PyLuaTblParser:
 				i += 1
 		return tmpContainer
 
-
 if __name__ == '__main__':
 	a = PyLuaTblParser()
 	test ="--{\n{abc=1, [==[--]==], a=2, --s\n}"
@@ -647,16 +744,78 @@ if __name__ == '__main__':
 #	print(b.startAndEnd('   {   }'))
 	b = PyLuaTblParser()
 	c = PyLuaTblParser()
-	f = open('test')
-	test = f.read()
+	test = '''{
+	root = {
+	        "Test Pattern String",
+		        -- {"object with 1 member" = {"array with 1 element",},},
+			        {["object with 1 member"] = {"array with 1 element",},},
+				        {},
+					        [99] = -42,
+						        true,
+							        false,
+								        nil,
+
+									        {
+										                ["integer"]= 1234567890,
+												                real=-9876.543210,
+														                e= 0.123456789e-12,
+																                E= 1.234567890E+34,
+																		                zero = 0,
+																				                one = 1,
+																						                space = " ",
+																								                quote = "\\\"",
+																										                backslash = "\\\\",
+																												                controls = "\\b\\f\\n\\r\\t",
+																														                slash = "/ & \/",
+																																                alpha= "abcdefghijklmnopqrstuvwyz",
+																																		                ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWYZ",
+																																				                digit = "0123456789",
+																																						                special = "`1~!@#$%^&*()_+-={',]}|;.</>?",
+																																								                hex = "\u0123\u4567\u89AB\uCDEF\uabcd\uef4A",
+																																										                ["true"] = true,
+																																												                ["false"] = false,
+																																														                ["nil"] = nil,
+																																																                array = {nil, nil,},
+																																																		                object = {  },
+																																																				                address = "50 St. James Street",
+																																																								url = "http://www.JSON.org/",
+																																																								                comment = "// /* <!-- --",
+																																																										                ["# -- --> */"] = " ",
+																																																												                [" s p a c e d " ] = {1,2 , 3
+
+																																																														                        ,
+
+																																																																	                        4 , 5        ,          6           ,7        },
+																																																																				                compact = {1,2,3,4,5,6,7},
+																																																																						                luatext = "{\\\"object with 1 member\\\" = {\\\"array with 1 element\\\"}}",
+																																																																								                quotes = "&#34; \u0022 %22 0x22 034 &#x22;",
+																																																																												[u'\\"\x08\x0c\n\r\t`1~!@#$%^&*()_+-=[]{}|;:\',./<>?']
+																																																																												                = "A key can be any string"
+																																																																														        },
+																																																																															        0.5 ,98.6
+																																																																																        ,
+																																																																																	        99.44
+																																																																																		        ,
+
+																																																																																			        1066
+
+
+																																																																																				        ,"rosebud"
+																																																																																					        
+																										}
+																																																																																						}'''
 	a.load(test)
 	d = a.dumpDict()
 	b.loadDict(d)
 	b.dumpLuaTable('test.lua')
-	f.close()
 	f = open('test.lua')
 	c.loadLuaTable('test.lua')
+	print(d)
 	if d==c.dumpDict():
 		print('ok')
-	print(d)
-	print(d[u'\\"\x08\x0c\n\r\t`1~!@#$%^&*()_+-=[]{}|;:\',./<>?'])
+	d1 = c.dumpDict()
+	print(c.dumpDict())
+#	print(d['\\"\x08\x0c\n\r\t`1~!@#$%^&*()_+-=[]{}|;:\',./<>?'])		
+	#print(a.decodeValue(test))
+	#print(test)
+	#print(a.encodeValue(a.decodeValue(test)))
