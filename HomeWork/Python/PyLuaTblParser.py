@@ -423,6 +423,11 @@ class PyLuaTblParser:
 		"""this function will raise a exception when it cannot parse the 
 		string, thus ,the call in other function will be paused by the 
 		exception"""
+		def strCheck(s):
+			for key in s:
+				if key !=' ' and  key != '\n' and key != '\t' and key != '}':
+					return True
+			return False
 		s = self.startAndEnd(s)
 		tmpContainer = {}
 		flag = self.dictOrList(s)
@@ -436,8 +441,9 @@ class PyLuaTblParser:
 
 		s = s[1:-1]
 
-		if not len(s):
+		if not len(s) or not strCheck(s):
 			return {}
+		
 
 		def collectKey(s):
 			res = ""
